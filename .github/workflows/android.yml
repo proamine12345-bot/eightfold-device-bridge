@@ -176,7 +176,7 @@ jobs:
           APK="${apks[0]}"
           test -s "$APK"
           unzip -t "$APK"
-          apksigner verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
           mkdir -p release-apk
           cp "$APK" release-apk/Ayman-Remote.apk
           test -s release-apk/Ayman-Remote.apk
