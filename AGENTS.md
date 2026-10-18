@@ -8,3 +8,6 @@
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
+
+- Signaling uses Lovable Cloud Realtime broadcast channels `ayman-remote-<code>`; media is peer-to-peer WebRTC — keeps the server out of the video path.
+- Native Android capture lives in `android-native/` (Capacitor plugin `AymanScreenCapture`); JS only relays signaling — browsers on Android lack getDisplayMedia.
