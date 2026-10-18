@@ -9,9 +9,8 @@ const config: CapacitorConfig = {
   },
   server: {
     androidScheme: "https",
-    // Pour tester en direct sur un appareil, décommentez et pointez vers l'URL publiée :
-    // url: "https://votre-app.lovable.app",
-    // cleartext: false,
+    url: "https://eightfold-device-bridge.lovable.app",
+    cleartext: false,
   },
 };
 
