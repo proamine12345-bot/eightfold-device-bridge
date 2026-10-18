@@ -9,6 +9,7 @@ import { ConnectDialog } from "@/components/ConnectDialog";
 import { IncomingRequestDialog } from "@/components/IncomingRequestDialog";
 import { RemoteScreen } from "@/components/RemoteScreen";
 import { useRemoteSession } from "@/hooks/useRemoteSession";
+import { AymanScreenCapture, isNativeAndroid } from "@/lib/native-screen";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -62,6 +63,24 @@ function Home() {
         {s.phase === "sharing" && (
           <div className="flex flex-col items-center gap-3 rounded-2xl border border-primary/40 bg-primary/10 px-5 py-4 text-center">
             <p className="text-sm font-medium text-foreground">Votre écran est partagé</p>
+            {isNativeAndroid() && (
+              <div className="flex flex-col items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    void AymanScreenCapture.openAccessibilitySettings().catch(() =>
+                      toast.error("Impossible d'ouvrir les paramètres d'accessibilité Android."),
+                    )
+                  }
+                >
+                  Activer le contrôle tactile
+                </Button>
+                <p className="max-w-xs text-xs text-muted-foreground">
+                  Activez « Ayman Remote control » dans les paramètres Android pour autoriser les gestes pendant une session acceptée.
+                </p>
+              </div>
+            )}
             <Button variant="destructive" size="sm" onClick={() => s.endSession()}>
               Arrêter le partage
             </Button>
@@ -104,7 +123,12 @@ function Home() {
       />
       <IncomingRequestDialog label={s.incoming?.label ?? null} onAccept={s.acceptRequest} onRefuse={s.refuseRequest} />
       {s.remoteStream && s.phase === "connected" && (
-        <RemoteScreen stream={s.remoteStream} peerCode={s.peerCode} onEnd={() => s.endSession()} />
+        <RemoteScreen
+          stream={s.remoteStream}
+          peerCode={s.peerCode}
+          onEnd={() => s.endSession()}
+          onControl={s.sendControl}
+        />
       )}
     </main>
   );
