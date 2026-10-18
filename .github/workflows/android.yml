@@ -20,7 +20,11 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - uses: android-actions/setup-android@v3
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
+          accept-android-sdk-licenses: true
 
       - name: Installer les dépendances
         run: bun install
@@ -49,3 +53,5 @@ jobs:
         with:
           name: ayman-remote-apk
           path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
