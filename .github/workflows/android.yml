@@ -35,6 +35,25 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
 
+      - name: Préparer les fichiers web pour Capacitor
+        run: |
+          mkdir -p .output/public
+          if [ ! -f .output/public/index.html ]; then
+            cat > .output/public/index.html <<'HTML'
+          <!doctype html>
+          <html lang="ar">
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+              <title>Eightfold Device Bridge</title>
+            </head>
+            <body>
+              <p>جارٍ فتح التطبيق...</p>
+            </body>
+          </html>
+          HTML
+          fi
+
       - name: Créer le projet Android si absent
         run: |
           if [ ! -d android ]; then bunx cap add android; fi
