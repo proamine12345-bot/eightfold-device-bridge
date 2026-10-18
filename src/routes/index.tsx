@@ -31,7 +31,7 @@ const phaseLabel: Record<string, string> = {
   connecting: "Établissement de la connexion chiffrée…",
 };
 
-function Home() {
+export function Home() {
   const s = useRemoteSession();
   const [open, setOpen] = useState(false);
 
