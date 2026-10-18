@@ -3,7 +3,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { channelName, rtcConfig, type SignalMessage } from "@/lib/webrtc";
 import { ensureDeviceSession, heartbeat, lookupCode } from "@/lib/device-session";
-import { AymanScreenCapture, canShareScreenInBrowser, isNativeAndroid } from "@/lib/native-screen";
+import { AymanScreenCapture, canShareScreenInBrowser, isNativeAndroid, type RemoteControlAction } from "@/lib/native-screen";
 
 export type Phase =
   | "init"
@@ -35,6 +35,7 @@ export function useRemoteSession() {
   const pc = useRef<RTCPeerConnection | null>(null);
   const localStream = useRef<MediaStream | null>(null);
   const viewerId = useRef<string | null>(null);
+  const remoteHostId = useRef<string | null>(null);
   const nativeActive = useRef(false);
   const nativeListeners = useRef<{ remove: () => Promise<void> }[]>([]);
 
@@ -49,10 +50,11 @@ export function useRemoteSession() {
     localStream.current = null;
     setRemoteStream(null);
     viewerId.current = null;
-    if (nativeActive.current) AymanScreenCapture.stopCapture().catch(() => {});
-    nativeActive.current = false;
+    remoteHostId.current = null;
     nativeListeners.current.forEach((l) => void l.remove());
     nativeListeners.current = [];
+    if (nativeActive.current) AymanScreenCapture.stopCapture().catch(() => {});
+    nativeActive.current = false;
   }, []);
 
   const endSession = useCallback(
@@ -101,6 +103,16 @@ export function useRemoteSession() {
         await AymanScreenCapture.setRemoteAnswer({ sdp: msg.sdp.sdp ?? "" });
       } else if (msg.type === "answer" && pc.current) {
         await pc.current.setRemoteDescription(msg.sdp);
+      } else if (msg.type === "control" && msg.to === myId.current && msg.from === viewerId.current && nativeActive.current) {
+        await AymanScreenCapture.performRemoteAction({
+          action: msg.action,
+          x: msg.x,
+          y: msg.y,
+          x2: msg.x2,
+          y2: msg.y2,
+          durationMs: msg.durationMs,
+          text: msg.text,
+        }).catch((error) => setMessage(error instanceof Error ? error.message : "Échec de l'action distante."));
       } else if (msg.type === "ice" && nativeActive.current && msg.from !== myId.current) {
         await AymanScreenCapture.addIceCandidate({
           candidate: msg.candidate.candidate ?? "",
@@ -125,7 +137,7 @@ export function useRemoteSession() {
     setPhase("connecting");
 
     // L'utilisateur a réellement accepté : ne pas afficher « refusé » si une étape technique échoue.
-    send({ type: "accepted", to: target });
+    send({ type: "accepted", to: target, from: myId.current });
 
     try {
       if (isNativeAndroid()) {
@@ -136,10 +148,10 @@ export function useRemoteSession() {
           ),
           await AymanScreenCapture.addListener("captureStopped", () => endSession()),
         );
+        nativeActive.current = true;
         const offer = await AymanScreenCapture.startCapture({
           iceServers: (rtcConfig.iceServers ?? []).flatMap((s) => (Array.isArray(s.urls) ? s.urls : [s.urls])),
         });
-        nativeActive.current = true;
         send({ type: "offer", to: target, sdp: offer as RTCSessionDescriptionInit });
         setPhase("sharing");
         if (deviceId.current) heartbeat(deviceId.current, "busy");
@@ -191,13 +203,17 @@ export function useRemoteSession() {
         return;
       }
       setPeerCode(code);
+      remoteHostId.current = null;
       const peer = createPeer();
       peer.addTransceiver("video", { direction: "recvonly" });
 
       const ch = supabase.channel(channelName(code), { config: { broadcast: { self: false } } });
       ch.on("broadcast", { event: "signal" }, async ({ payload }) => {
         const msg = payload as SignalMessage;
-        if (msg.type === "accepted" && msg.to === myId.current) setPhase("connecting");
+        if (msg.type === "accepted" && msg.to === myId.current) {
+          remoteHostId.current = msg.from;
+          setPhase("connecting");
+        }
         if (msg.type === "refused" && msg.to === myId.current) {
           setMessage("L'autre appareil a refusé la connexion.");
           endSession(false);
@@ -233,6 +249,12 @@ export function useRemoteSession() {
     },
     [createPeer, endSession, myCode, send],
   );
+
+  const sendControl = useCallback((action: RemoteControlAction) => {
+    const target = remoteHostId.current;
+    if (!target) return;
+    send({ type: "control", to: target, from: myId.current, ...action });
+  }, [send]);
 
   const hostHandler = useRef(handleHostSignal);
   hostHandler.current = handleHostSignal;
@@ -294,5 +316,6 @@ export function useRemoteSession() {
     acceptRequest,
     refuseRequest,
     endSession,
+    sendControl,
   };
 }
