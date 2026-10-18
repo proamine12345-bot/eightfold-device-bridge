@@ -95,7 +95,7 @@ export function useRemoteSession() {
   const handleHostSignal = useCallback(
     async (msg: SignalMessage) => {
       if (msg.type === "request") {
-        if (pc.current || nativeActive.current) return; // déjà en session
+        if (pc.current || nativeActive.current || incoming) return;
         setIncoming({ from: msg.from, label: msg.label });
       } else if (msg.type === "answer" && nativeActive.current) {
         await AymanScreenCapture.setRemoteAnswer({ sdp: msg.sdp.sdp ?? "" });
@@ -114,7 +114,7 @@ export function useRemoteSession() {
         endSession(false);
       }
     },
-    [endSession],
+    [endSession, incoming],
   );
 
   const acceptRequest = useCallback(async () => {
@@ -123,9 +123,13 @@ export function useRemoteSession() {
     viewerId.current = target;
     setIncoming(null);
     setPhase("connecting");
+
+    // L'utilisateur a réellement accepté : ne pas afficher « refusé » si une étape technique échoue.
+    send({ type: "accepted", to: target });
+
     try {
       if (isNativeAndroid()) {
-        // Android : MediaProjection + WebRTC natif (android-native/). Le JS relaie la signalisation.
+        // Android : MediaProjection + WebRTC natif. Le JS relaie uniquement la signalisation.
         nativeListeners.current.push(
           await AymanScreenCapture.addListener("iceCandidate", (c) =>
             send({ type: "ice", to: target, from: myId.current, candidate: c }),
@@ -136,8 +140,7 @@ export function useRemoteSession() {
           iceServers: (rtcConfig.iceServers ?? []).flatMap((s) => (Array.isArray(s.urls) ? s.urls : [s.urls])),
         });
         nativeActive.current = true;
-        send({ type: "accepted", to: target });
-        send({ type: "offer", to: target, sdp: offer });
+        send({ type: "offer", to: target, sdp: offer as RTCSessionDescriptionInit });
         setPhase("sharing");
         if (deviceId.current) heartbeat(deviceId.current, "busy");
         return;
@@ -150,22 +153,21 @@ export function useRemoteSession() {
       stream.getTracks().forEach((t) => peer.addTrack(t, stream));
       const offer = await peer.createOffer();
       await peer.setLocalDescription(offer);
-      send({ type: "accepted", to: target });
       send({ type: "offer", to: target, sdp: offer });
       setPhase("sharing");
       if (deviceId.current) heartbeat(deviceId.current, "busy");
     } catch (err) {
       const reason = (err as Error).message;
-      send({ type: "refused", to: target });
+      send({ type: "failed", to: target, reason: reason === "unsupported" ? "unsupported" : "startup" });
       setMessage(
         reason === "unsupported"
           ? "Le partage d'écran n'est pas disponible dans ce navigateur. Utilisez l'application Android."
-          : "Le partage d'écran a été annulé.",
+          : "Vous avez accepté, mais le partage d'écran n'a pas pu démarrer. Vérifiez l'autorisation Android puis réessayez.",
       );
       cleanupPeer();
       setPhase("ready");
     }
-  }, [cleanupPeer, createPeer, endSession, incoming, myCode, send]);
+  }, [cleanupPeer, createPeer, endSession, incoming, send]);
 
   const refuseRequest = useCallback(() => {
     if (incoming) send({ type: "refused", to: incoming.from });
@@ -200,6 +202,14 @@ export function useRemoteSession() {
           setMessage("L'autre appareil a refusé la connexion.");
           endSession(false);
           setPhase("refused");
+        }
+        if (msg.type === "failed" && msg.to === myId.current) {
+          setMessage(
+            msg.reason === "unsupported"
+              ? "L'autre appareil a accepté, mais son navigateur ne permet pas le partage d'écran."
+              : "L'autre appareil a accepté, mais le partage n'a pas pu démarrer. Vérifiez les autorisations et réessayez.",
+          );
+          endSession(false);
         }
         if (msg.type === "offer" && msg.to === myId.current && pc.current) {
           await pc.current.setRemoteDescription(msg.sdp);
