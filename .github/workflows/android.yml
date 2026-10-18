@@ -30,9 +30,6 @@ jobs:
 
       - name: Construire l'application web
         run: bun run build:android
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
 
       - name: Préparer les fichiers web pour Capacitor
         run: |
