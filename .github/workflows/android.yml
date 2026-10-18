@@ -41,32 +41,111 @@ jobs:
           if [ ! -f .output/public/index.html ]; then
             cat > .output/public/index.html <<'HTML'
           <!doctype html>
-          <html lang="ar">
+          <html lang="fr">
             <head>
               <meta charset="utf-8">
               <meta name="viewport" content="width=device-width, initial-scale=1">
-              <title>Eightfold Device Bridge</title>
+              <title>Ayman Remote</title>
             </head>
             <body>
-              <p>جارٍ فتح التطبيق...</p>
+              <p>Chargement d'Ayman Remote…</p>
             </body>
           </html>
           HTML
           fi
 
-      - name: Créer le projet Android si absent
+      - name: Générer et intégrer le pont Android natif
         run: |
           if [ ! -d android ]; then bunx cap add android; fi
           bunx cap sync android
 
-      - name: Copier le plugin natif de capture d'écran
-        run: |
           mkdir -p android/app/src/main/java/com/ayman/remote
           cp android-native/app/src/main/java/com/ayman/remote/*.kt android/app/src/main/java/com/ayman/remote/
 
-      - name: Compiler l'APK de debug
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root_gradle = Path("android/build.gradle")
+          root_text = root_gradle.read_text()
+          if "kotlin-gradle-plugin" not in root_text:
+              marker = "dependencies {"
+              if marker not in root_text:
+                  raise SystemExit("Could not locate root Gradle buildscript dependencies")
+              root_text = root_text.replace(
+                  marker,
+                  marker + "\n        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.0.21'",
+                  1,
+              )
+              root_gradle.write_text(root_text)
+
+          app_gradle = Path("android/app/build.gradle")
+          app_text = app_gradle.read_text()
+          if "kotlin-android" not in app_text and "org.jetbrains.kotlin.android" not in app_text:
+              marker = "android {"
+              if marker not in app_text:
+                  raise SystemExit("Could not locate Android app Gradle configuration")
+              app_text = app_text.replace(marker, "apply plugin: 'kotlin-android'\n\n" + marker, 1)
+          if "io.github.webrtc-sdk:android:" not in app_text:
+              marker = "dependencies {"
+              if marker not in app_text:
+                  raise SystemExit("Could not locate Android app dependencies")
+              app_text = app_text.replace(
+                  marker,
+                  marker + "\n    implementation 'io.github.webrtc-sdk:android:125.6422.07'",
+                  1,
+              )
+          app_gradle.write_text(app_text)
+
+          manifests = Path("android/app/src/main/AndroidManifest.xml")
+          manifest = manifests.read_text()
+          permissions = [
+              '    <uses-permission android:name="android.permission.INTERNET" />',
+              '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />',
+              '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />',
+              '    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
+          ]
+          for permission in permissions:
+              permission_name = permission.split('"')[1]
+              if permission_name not in manifest:
+                  manifest = manifest.replace("<application", permission + "\n    <application", 1)
+          service = '''        <service
+                      android:name="com.ayman.remote.ScreenCaptureService"
+                      android:exported="false"
+                      android:foregroundServiceType="mediaProjection" />'''
+          if "com.ayman.remote.ScreenCaptureService" not in manifest:
+              manifest = manifest.replace("</application>", service + "\n    </application>", 1)
+          manifests.write_text(manifest)
+
+          main_files = list(Path("android/app/src/main/java").rglob("MainActivity.java"))
+          if not main_files:
+              raise SystemExit("Capacitor MainActivity.java was not generated")
+          main = main_files[0]
+          text = main.read_text()
+          if "AymanScreenCapturePlugin" not in text:
+              text = text.replace(
+                  "import com.getcapacitor.BridgeActivity;",
+                  "import com.getcapacitor.BridgeActivity;\nimport android.os.Bundle;\nimport com.ayman.remote.AymanScreenCapturePlugin;",
+                  1,
+              )
+              text = text.replace(
+                  "public class MainActivity extends BridgeActivity {}",
+                  """public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  registerPlugin(AymanScreenCapturePlugin.class);
+                  super.onCreate(savedInstanceState);
+              }
+          }""",
+                  1,
+              )
+              if "registerPlugin(AymanScreenCapturePlugin.class)" not in text:
+                  raise SystemExit("Could not register AymanScreenCapturePlugin in MainActivity")
+              main.write_text(text)
+          PY
+
+      - name: Compiler l'APK Android
         working-directory: android
-        run: ./gradlew assembleDebug
+        run: ./gradlew --no-daemon assembleDebug
 
       - uses: actions/upload-artifact@v4
         with:
