@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -160,9 +163,31 @@ jobs:
         working-directory: android
         run: ./gradlew --no-daemon assembleDebug
 
-      - uses: actions/upload-artifact@v4
+      - name: Vérifier et préparer le téléchargement direct de l'APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t apks < <(find android/app/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' -print)
+          if [ "${#apks[@]}" -ne 1 ]; then
+            echo "Expected exactly one debug APK; found ${#apks[@]}."
+            find android/app/build/outputs/apk -maxdepth 4 -type f -print || true
+            exit 1
+          fi
+          APK="${apks[0]}"
+          test -s "$APK"
+          unzip -t "$APK"
+          apksigner verify --verbose "$APK"
+          mkdir -p release-apk
+          cp "$APK" release-apk/Ayman-Remote.apk
+          test -s release-apk/Ayman-Remote.apk
+          echo "Verified APK ready: release-apk/Ayman-Remote.apk"
+          ls -lh release-apk/Ayman-Remote.apk
+
+      # Upload a single APK without wrapping it in an artifact ZIP.
+      # This avoids the extra ZIP extraction step on Android phones.
+      - uses: actions/upload-artifact@v7
         with:
-          name: ayman-remote-apk
-          path: android/app/build/outputs/apk/debug/*.apk
+          path: release-apk/Ayman-Remote.apk
+          archive: false
           if-no-files-found: error
           retention-days: 14
