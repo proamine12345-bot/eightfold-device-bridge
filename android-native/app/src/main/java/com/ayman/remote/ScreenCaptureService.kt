@@ -11,19 +11,14 @@ import android.os.IBinder
 import org.webrtc.*
 
 /**
- * Service au premier plan requis par Android (type mediaProjection) qui :
- *  - détient la MediaProjection autorisée par l'utilisateur,
- *  - encode l'écran via ScreenCapturerAndroid,
- *  - publie le flux dans une PeerConnection WebRTC (google-webrtc / stream-webrtc-android).
- *
- * Dépendance Gradle suggérée :
- *   implementation("io.github.webrtc-sdk:android:125.6422.07")
+ * Service au premier plan requis par Android (type mediaProjection) qui détient
+ * la MediaProjection autorisée et envoie l'écran via une PeerConnection WebRTC.
  */
 class ScreenCaptureService : Service() {
 
     companion object {
-        var instance: ScreenCaptureService? = null
-        var onReady: ((ScreenCaptureService) -> Unit)? = null
+        @Volatile var instance: ScreenCaptureService? = null
+        @Volatile var onReady: ((ScreenCaptureService) -> Unit)? = null
         private const val CHANNEL_ID = "ayman_remote_capture"
     }
 
@@ -31,6 +26,7 @@ class ScreenCaptureService : Service() {
     private var factory: PeerConnectionFactory? = null
     private var peer: PeerConnection? = null
     private var capturer: VideoCapturer? = null
+    private var onStoppedCallback: (() -> Unit)? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -49,8 +45,9 @@ class ScreenCaptureService : Service() {
         } else {
             startForeground(1, notification)
         }
-        onReady?.invoke(this)
+        val ready = onReady
         onReady = null
+        ready?.invoke(this)
     }
 
     fun startSession(
@@ -63,6 +60,7 @@ class ScreenCaptureService : Service() {
         onError: (String) -> Unit,
     ) {
         try {
+            onStoppedCallback = onStopped
             eglBase = EglBase.create()
             PeerConnectionFactory.initialize(
                 PeerConnectionFactory.InitializationOptions.builder(applicationContext).createInitializationOptions()
@@ -79,9 +77,7 @@ class ScreenCaptureService : Service() {
             peer = factory!!.createPeerConnection(config, object : PeerConnection.Observer {
                 override fun onIceCandidate(c: IceCandidate) = onIce(c.sdp, c.sdpMid, c.sdpMLineIndex)
                 override fun onConnectionChange(newState: PeerConnection.PeerConnectionState) {
-                    if (newState == PeerConnection.PeerConnectionState.FAILED ||
-                        newState == PeerConnection.PeerConnectionState.CLOSED
-                    ) onStopped()
+                    if (newState == PeerConnection.PeerConnectionState.FAILED) onStopped()
                 }
                 override fun onSignalingChange(p0: PeerConnection.SignalingState?) {}
                 override fun onIceConnectionChange(p0: PeerConnection.IceConnectionState?) {}
@@ -92,10 +88,14 @@ class ScreenCaptureService : Service() {
                 override fun onRemoveStream(p0: MediaStream?) {}
                 override fun onDataChannel(p0: DataChannel?) {}
                 override fun onRenegotiationNeeded() {}
-            })
+                override fun onTrack(transceiver: RtpTransceiver?) {}
+            }) ?: throw IllegalStateException("Impossible de créer la connexion WebRTC")
 
             val screenCapturer = ScreenCapturerAndroid(data, object : android.media.projection.MediaProjection.Callback() {
-                override fun onStop() = onStopped()
+                override fun onStop() {
+                    onStopped()
+                    stopSelf()
+                }
             })
             capturer = screenCapturer
             val helper = SurfaceTextureHelper.create("CaptureThread", eglBase.eglBaseContext)
@@ -107,15 +107,21 @@ class ScreenCaptureService : Service() {
 
             peer!!.createOffer(object : SdpObserver {
                 override fun onCreateSuccess(desc: SessionDescription) {
-                    peer!!.setLocalDescription(EmptySdpObserver(), desc)
-                    onOffer(desc.description)
+                    peer?.setLocalDescription(object : SdpObserver {
+                        override fun onSetSuccess() {
+                            onOffer(desc.description)
+                        }
+                        override fun onSetFailure(error: String?) = onError(error ?: "Impossible de préparer l'offre WebRTC")
+                        override fun onCreateSuccess(p0: SessionDescription?) {}
+                        override fun onCreateFailure(error: String?) = onError(error ?: "Échec WebRTC")
+                    }, desc)
                 }
                 override fun onSetSuccess() {}
-                override fun onCreateFailure(err: String?) = onError(err ?: "offer failed")
-                override fun onSetFailure(err: String?) {}
+                override fun onCreateFailure(err: String?) = onError(err ?: "Échec de création de l'offre WebRTC")
+                override fun onSetFailure(err: String?) = onError(err ?: "Échec de configuration WebRTC")
             }, MediaConstraints())
         } catch (e: Exception) {
-            onError(e.message ?: "capture failed")
+            onError(e.message ?: "Échec du partage d'écran")
         }
     }
 
@@ -128,11 +134,13 @@ class ScreenCaptureService : Service() {
     }
 
     override fun onDestroy() {
-        capturer?.stopCapture()
+        try { capturer?.stopCapture() } catch (_: Exception) {}
         capturer?.dispose()
         peer?.close()
         factory?.dispose()
-        instance = null
+        if (instance === this) instance = null
+        onStoppedCallback?.invoke()
+        onStoppedCallback = null
         super.onDestroy()
     }
 
