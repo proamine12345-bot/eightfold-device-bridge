@@ -19,6 +19,7 @@ export type SignalMessage =
   | { type: "request"; from: string; label: string }
   | { type: "accepted"; to: string }
   | { type: "refused"; to: string }
+  | { type: "failed"; to: string; reason?: string }
   | { type: "offer"; to: string; sdp: RTCSessionDescriptionInit }
   | { type: "answer"; from: string; sdp: RTCSessionDescriptionInit }
   | { type: "ice"; to?: string | undefined; from?: string | undefined; candidate: RTCIceCandidateInit }
