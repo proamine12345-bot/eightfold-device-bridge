@@ -14,7 +14,33 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      remote_sessions: {
+        Row: {
+          code: string
+          created_at: string
+          device_label: string
+          id: string
+          last_seen_at: string
+          status: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          device_label?: string
+          id?: string
+          last_seen_at?: string
+          status?: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          device_label?: string
+          id?: string
+          last_seen_at?: string
+          status?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
