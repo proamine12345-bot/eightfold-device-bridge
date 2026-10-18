@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
+import android.provider.Settings
 import androidx.activity.result.ActivityResult
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
@@ -13,8 +14,9 @@ import com.getcapacitor.annotation.ActivityCallback
 import com.getcapacitor.annotation.CapacitorPlugin
 
 /**
- * Plugin Capacitor : capture d'écran via l'API officielle MediaProjection.
- * Android affiche lui-même la boîte de dialogue de consentement à chaque session.
+ * Capacitor bridge for screen sharing and owner-authorized remote touch actions.
+ * Android itself asks for screen-capture consent; Accessibility must be enabled by
+ * the device owner from system settings before remote gestures can be executed.
  */
 @CapacitorPlugin(name = "AymanScreenCapture")
 class AymanScreenCapturePlugin : Plugin() {
@@ -53,8 +55,7 @@ class AymanScreenCapturePlugin : Plugin() {
             )
         }
 
-        // Enregistrer le callback AVANT de démarrer le service évite une course où onCreate()
-        // s'exécute avant l'affectation de onReady et la promesse JavaScript reste bloquée.
+        // Set the callback before starting the service to avoid a race with onCreate().
         val existing = ScreenCaptureService.instance
         if (existing != null) {
             startSession(existing)
@@ -93,6 +94,42 @@ class AymanScreenCapturePlugin : Plugin() {
             call.getInt("sdpMLineIndex") ?: 0,
         )
         call.resolve()
+    }
+
+    @PluginMethod
+    fun openAccessibilitySettings(call: PluginCall) {
+        try {
+            context.startActivity(
+                Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+            call.resolve()
+        } catch (error: Exception) {
+            call.reject(error.message ?: "Impossible d'ouvrir les paramètres d'accessibilité")
+        }
+    }
+
+    @PluginMethod
+    fun performRemoteAction(call: PluginCall) {
+        val service = RemoteControlAccessibilityService.instance
+        if (service == null) {
+            call.reject("Activez le service de contrôle Ayman Remote dans les paramètres d'accessibilité Android.")
+            return
+        }
+        val success = service.performRemoteAction(
+            action = call.getString("action") ?: "",
+            x = (call.getDouble("x") ?: 0.0).toFloat(),
+            y = (call.getDouble("y") ?: 0.0).toFloat(),
+            x2 = (call.getDouble("x2") ?: 0.0).toFloat(),
+            y2 = (call.getDouble("y2") ?: 0.0).toFloat(),
+            durationMs = (call.getDouble("durationMs") ?: 350.0).toLong(),
+            text = call.getString("text"),
+        )
+        if (success) call.resolve() else call.reject("تعذر تنفيذ الإجراء. تأكد من تفعيل خدمة التحكم وأن الشاشة تسمح بهذا الإجراء.")
+    }
+
+    @PluginMethod
+    fun isRemoteControlEnabled(call: PluginCall) {
+        call.resolve(JSObject().put("enabled", RemoteControlAccessibilityService.instance != null))
     }
 
     @PluginMethod
