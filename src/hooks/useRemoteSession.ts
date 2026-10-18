@@ -38,6 +38,9 @@ export function useRemoteSession() {
   const remoteHostId = useRef<string | null>(null);
   const nativeActive = useRef(false);
   const nativeListeners = useRef<{ remove: () => Promise<void> }[]>([]);
+  const pendingHostIce = useRef<RTCIceCandidateInit[]>([]);
+  const pendingViewerIce = useRef<RTCIceCandidateInit[]>([]);
+  const hostRemoteDescriptionReady = useRef(false);
 
   const send = useCallback((msg: SignalMessage) => {
     activeChannel.current?.send({ type: "broadcast", event: "signal", payload: msg });
@@ -51,6 +54,9 @@ export function useRemoteSession() {
     setRemoteStream(null);
     viewerId.current = null;
     remoteHostId.current = null;
+    pendingHostIce.current = [];
+    pendingViewerIce.current = [];
+    hostRemoteDescriptionReady.current = false;
     nativeListeners.current.forEach((l) => void l.remove());
     nativeListeners.current = [];
     if (nativeActive.current) AymanScreenCapture.stopCapture().catch(() => {});
@@ -101,8 +107,20 @@ export function useRemoteSession() {
         setIncoming({ from: msg.from, label: msg.label });
       } else if (msg.type === "answer" && nativeActive.current) {
         await AymanScreenCapture.setRemoteAnswer({ sdp: msg.sdp.sdp ?? "" });
+        hostRemoteDescriptionReady.current = true;
+        const queued = pendingHostIce.current.splice(0);
+        for (const candidate of queued) {
+          await AymanScreenCapture.addIceCandidate({
+            candidate: candidate.candidate ?? "",
+            sdpMid: candidate.sdpMid ?? null,
+            sdpMLineIndex: candidate.sdpMLineIndex ?? null,
+          }).catch(() => {});
+        }
       } else if (msg.type === "answer" && pc.current) {
         await pc.current.setRemoteDescription(msg.sdp);
+        hostRemoteDescriptionReady.current = true;
+        const queued = pendingHostIce.current.splice(0);
+        for (const candidate of queued) await pc.current.addIceCandidate(candidate).catch(() => {});
       } else if (msg.type === "control" && msg.to === myId.current && msg.from === viewerId.current && nativeActive.current) {
         await AymanScreenCapture.performRemoteAction({
           action: msg.action,
@@ -114,13 +132,21 @@ export function useRemoteSession() {
           text: msg.text,
         }).catch((error) => setMessage(error instanceof Error ? error.message : "Échec de l'action distante."));
       } else if (msg.type === "ice" && nativeActive.current && msg.from !== myId.current) {
-        await AymanScreenCapture.addIceCandidate({
-          candidate: msg.candidate.candidate ?? "",
-          sdpMid: msg.candidate.sdpMid ?? null,
-          sdpMLineIndex: msg.candidate.sdpMLineIndex ?? null,
-        }).catch(() => {});
+        if (!hostRemoteDescriptionReady.current) {
+          pendingHostIce.current.push(msg.candidate);
+        } else {
+          await AymanScreenCapture.addIceCandidate({
+            candidate: msg.candidate.candidate ?? "",
+            sdpMid: msg.candidate.sdpMid ?? null,
+            sdpMLineIndex: msg.candidate.sdpMLineIndex ?? null,
+          }).catch(() => {});
+        }
       } else if (msg.type === "ice" && pc.current && msg.from !== myId.current) {
-        await pc.current.addIceCandidate(msg.candidate).catch(() => {});
+        if (!hostRemoteDescriptionReady.current || !pc.current.remoteDescription) {
+          pendingHostIce.current.push(msg.candidate);
+        } else {
+          await pc.current.addIceCandidate(msg.candidate).catch(() => {});
+        }
       } else if (msg.type === "end") {
         setMessage("La session a été fermée par l'autre appareil.");
         endSession(false);
@@ -135,6 +161,8 @@ export function useRemoteSession() {
     viewerId.current = target;
     setIncoming(null);
     setPhase("connecting");
+    hostRemoteDescriptionReady.current = false;
+    pendingHostIce.current = [];
 
     // L'utilisateur a réellement accepté : ne pas afficher « refusé » si une étape technique échoue.
     send({ type: "accepted", to: target, from: myId.current });
@@ -229,13 +257,16 @@ export function useRemoteSession() {
         }
         if (msg.type === "offer" && msg.to === myId.current && pc.current) {
           await pc.current.setRemoteDescription(msg.sdp);
+          const queued = pendingViewerIce.current.splice(0);
+          for (const candidate of queued) await pc.current.addIceCandidate(candidate).catch(() => {});
           const answer = await pc.current.createAnswer();
           await pc.current.setLocalDescription(answer);
           send({ type: "answer", from: myId.current, sdp: answer });
           setPhase("connected");
         }
         if (msg.type === "ice" && msg.from !== myId.current && pc.current) {
-          await pc.current.addIceCandidate(msg.candidate).catch(() => {});
+          if (!pc.current.remoteDescription) pendingViewerIce.current.push(msg.candidate);
+          else await pc.current.addIceCandidate(msg.candidate).catch(() => {});
         }
         if (msg.type === "end") {
           setMessage("La session a été fermée par l'autre appareil.");
