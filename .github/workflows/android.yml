@@ -20,8 +20,7 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools platforms;android-35 build-tools;35.0.0"
           accept-android-sdk-licenses: true
@@ -61,6 +60,8 @@ jobs:
 
           mkdir -p android/app/src/main/java/com/ayman/remote
           cp android-native/app/src/main/java/com/ayman/remote/*.kt android/app/src/main/java/com/ayman/remote/
+          mkdir -p android/app/src/main/res/xml
+          cp android-native/res/xml/ayman_remote_accessibility.xml android/app/src/main/res/xml/
 
           python3 - <<'PY'
           from pathlib import Path
@@ -108,12 +109,27 @@ jobs:
               permission_name = permission.split('"')[1]
               if permission_name not in manifest:
                   manifest = manifest.replace("<application", permission + "\n    <application", 1)
-          service = '''        <service
+
+          screen_service = '''        <service
                       android:name="com.ayman.remote.ScreenCaptureService"
                       android:exported="false"
                       android:foregroundServiceType="mediaProjection" />'''
+          accessibility_service = '''        <service
+                      android:name="com.ayman.remote.RemoteControlAccessibilityService"
+                      android:label="Ayman Remote control"
+                      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+                      android:exported="true">
+                  <intent-filter>
+                      <action android:name="android.accessibilityservice.AccessibilityService" />
+                  </intent-filter>
+                  <meta-data
+                      android:name="android.accessibilityservice"
+                      android:resource="@xml/ayman_remote_accessibility" />
+              </service>'''
           if "com.ayman.remote.ScreenCaptureService" not in manifest:
-              manifest = manifest.replace("</application>", service + "\n    </application>", 1)
+              manifest = manifest.replace("</application>", screen_service + "\n    </application>", 1)
+          if "com.ayman.remote.RemoteControlAccessibilityService" not in manifest:
+              manifest = manifest.replace("</application>", accessibility_service + "\n    </application>", 1)
           manifests.write_text(manifest)
 
           main_files = list(Path("android/app/src/main/java").rglob("MainActivity.java"))
