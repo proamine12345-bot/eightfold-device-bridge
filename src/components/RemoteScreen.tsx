@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { Button } from "@/components/ui/button";
 import type { RemoteControlAction } from "@/lib/native-screen";
 
@@ -37,7 +37,7 @@ export function RemoteScreen({ stream, peerCode, onEnd, onControl }: Props) {
     };
   };
 
-  const onPointerDown = (event: React.PointerEvent<HTMLVideoElement>) => {
+  const onPointerDown = (event: PointerEvent<HTMLVideoElement>) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     const point = normalizedPoint(event.clientX, event.clientY);
     startPoint.current = { ...point, at: Date.now() };
