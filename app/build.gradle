@@ -14,4 +14,20 @@ android {
         versionCode 1
         versionName '1.0'
     }
+
+    // Make debug APK signing explicit so the APK produced by GitHub Actions
+    // is installable on modern Android devices and remains compatible with
+    // older supported Android versions.
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    signingConfigs {
+        debug {
+            enableV1Signing true
+            enableV2Signing true
+        }
+    }
 }
