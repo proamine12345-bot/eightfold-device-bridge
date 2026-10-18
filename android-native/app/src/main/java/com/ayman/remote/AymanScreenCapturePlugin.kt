@@ -77,8 +77,9 @@ class AymanScreenCapturePlugin : Plugin() {
             call.reject("Aucune session de partage active")
             return
         }
-        service.setRemoteAnswer(call.getString("sdp") ?: "")
-        call.resolve()
+        service.setRemoteAnswer(call.getString("sdp") ?: "") { error ->
+            if (error != null) call.reject(error) else call.resolve()
+        }
     }
 
     @PluginMethod
