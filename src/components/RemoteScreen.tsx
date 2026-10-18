@@ -21,7 +21,7 @@ export function RemoteScreen({ stream, peerCode, onEnd }: Props) {
           Terminer
         </Button>
       </header>
-      <video ref={videoRef} autoPlay playsInline muted className="h-full w-full flex-1 bg-black object-contain" />
+      <video ref={videoRef} autoPlay playsInline muted className="h-full w-full flex-1 bg-muted object-contain" />
     </div>
   );
 }
