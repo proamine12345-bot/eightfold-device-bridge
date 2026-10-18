@@ -35,6 +35,8 @@ export function useRemoteSession() {
   const pc = useRef<RTCPeerConnection | null>(null);
   const localStream = useRef<MediaStream | null>(null);
   const viewerId = useRef<string | null>(null);
+  const nativeActive = useRef(false);
+  const nativeListeners = useRef<{ remove: () => Promise<void> }[]>([]);
 
   const send = useCallback((msg: SignalMessage) => {
     activeChannel.current?.send({ type: "broadcast", event: "signal", payload: msg });
@@ -47,7 +49,10 @@ export function useRemoteSession() {
     localStream.current = null;
     setRemoteStream(null);
     viewerId.current = null;
-    if (isNativeAndroid()) AymanScreenCapture.stopCapture().catch(() => {});
+    if (nativeActive.current) AymanScreenCapture.stopCapture().catch(() => {});
+    nativeActive.current = false;
+    nativeListeners.current.forEach((l) => void l.remove());
+    nativeListeners.current = [];
   }, []);
 
   const endSession = useCallback(
@@ -90,10 +95,18 @@ export function useRemoteSession() {
   const handleHostSignal = useCallback(
     async (msg: SignalMessage) => {
       if (msg.type === "request") {
-        if (pc.current) return; // déjà en session
+        if (pc.current || nativeActive.current) return; // déjà en session
         setIncoming({ from: msg.from, label: msg.label });
+      } else if (msg.type === "answer" && nativeActive.current) {
+        await AymanScreenCapture.setRemoteAnswer({ sdp: msg.sdp.sdp ?? "" });
       } else if (msg.type === "answer" && pc.current) {
         await pc.current.setRemoteDescription(msg.sdp);
+      } else if (msg.type === "ice" && nativeActive.current && msg.from !== myId.current) {
+        await AymanScreenCapture.addIceCandidate({
+          candidate: msg.candidate.candidate ?? "",
+          sdpMid: msg.candidate.sdpMid ?? null,
+          sdpMLineIndex: msg.candidate.sdpMLineIndex ?? null,
+        }).catch(() => {});
       } else if (msg.type === "ice" && pc.current && msg.from !== myId.current) {
         await pc.current.addIceCandidate(msg.candidate).catch(() => {});
       } else if (msg.type === "end") {
@@ -111,15 +124,26 @@ export function useRemoteSession() {
     setIncoming(null);
     setPhase("connecting");
     try {
-      let stream: MediaStream;
       if (isNativeAndroid()) {
-        // Sur Android, la capture passe par MediaProjection (plugin natif, voir docs/ANDROID.md)
-        await AymanScreenCapture.startCapture({ signalingChannel: channelName(myCode ?? ""), viewerId: target });
-        throw new Error("native-handled");
-      } else {
-        if (!canShareScreenInBrowser()) throw new Error("unsupported");
-        stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+        // Android : MediaProjection + WebRTC natif (android-native/). Le JS relaie la signalisation.
+        nativeListeners.current.push(
+          await AymanScreenCapture.addListener("iceCandidate", (c) =>
+            send({ type: "ice", to: target, from: myId.current, candidate: c }),
+          ),
+          await AymanScreenCapture.addListener("captureStopped", () => endSession()),
+        );
+        const offer = await AymanScreenCapture.startCapture({
+          iceServers: (rtcConfig.iceServers ?? []).flatMap((s) => (Array.isArray(s.urls) ? s.urls : [s.urls])),
+        });
+        nativeActive.current = true;
+        send({ type: "accepted", to: target });
+        send({ type: "offer", to: target, sdp: offer });
+        setPhase("sharing");
+        if (deviceId.current) heartbeat(deviceId.current, "busy");
+        return;
       }
+      if (!canShareScreenInBrowser()) throw new Error("unsupported");
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
       localStream.current = stream;
       stream.getVideoTracks()[0].addEventListener("ended", () => endSession());
       const peer = createPeer(target);
@@ -136,9 +160,7 @@ export function useRemoteSession() {
       setMessage(
         reason === "unsupported"
           ? "Le partage d'écran n'est pas disponible dans ce navigateur. Utilisez l'application Android."
-          : reason === "native-handled"
-            ? "La capture Android nécessite le plugin natif (voir la documentation)."
-            : "Le partage d'écran a été annulé.",
+          : "Le partage d'écran a été annulé.",
       );
       cleanupPeer();
       setPhase("ready");
