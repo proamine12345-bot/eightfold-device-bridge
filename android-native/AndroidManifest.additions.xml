@@ -1,0 +1,16 @@
+<!--
+  À fusionner dans android/app/src/main/AndroidManifest.xml après `npx cap add android`.
+-->
+<manifest>
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+  <application>
+    <service
+        android:name="com.ayman.remote.ScreenCaptureService"
+        android:exported="false"
+        android:foregroundServiceType="mediaProjection" />
+  </application>
+</manifest>

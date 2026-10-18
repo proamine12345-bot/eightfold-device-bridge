@@ -1,0 +1,51 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Installer les dépendances
+        run: bun install
+
+      - name: Construire l'application web
+        run: bun run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+
+      - name: Créer le projet Android si absent
+        run: |
+          if [ ! -d android ]; then bunx cap add android; fi
+          bunx cap sync android
+
+      - name: Copier le plugin natif de capture d'écran
+        run: |
+          mkdir -p android/app/src/main/java/com/ayman/remote
+          cp android-native/app/src/main/java/com/ayman/remote/*.kt android/app/src/main/java/com/ayman/remote/
+
+      - name: Compiler l'APK de debug
+        working-directory: android
+        run: ./gradlew assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ayman-remote-apk
+          path: android/app/build/outputs/apk/debug/*.apk
