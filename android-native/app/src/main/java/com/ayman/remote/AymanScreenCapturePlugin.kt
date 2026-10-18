@@ -35,34 +35,59 @@ class AymanScreenCapturePlugin : Plugin() {
             call.reject("Partage refusé par l'utilisateur")
             return
         }
-        // Android 14+ : le service au premier plan doit démarrer AVANT getMediaProjection().
-        val intent = Intent(context, ScreenCaptureService::class.java)
-        context.startForegroundService(intent)
 
-        ScreenCaptureService.onReady = { service ->
+        val startSession: (ScreenCaptureService) -> Unit = { service ->
             service.startSession(
                 resultCode = result.resultCode,
                 data = result.data!!,
                 iceServers = iceServers,
                 onOffer = { sdp -> call.resolve(JSObject().put("type", "offer").put("sdp", sdp)) },
-                onIce = { c, mid, idx ->
-                    notifyListeners("iceCandidate", JSObject().put("candidate", c).put("sdpMid", mid).put("sdpMLineIndex", idx))
+                onIce = { candidate, mid, index ->
+                    notifyListeners(
+                        "iceCandidate",
+                        JSObject().put("candidate", candidate).put("sdpMid", mid).put("sdpMLineIndex", index),
+                    )
                 },
                 onStopped = { notifyListeners("captureStopped", JSObject()) },
-                onError = { msg -> call.reject(msg) },
+                onError = { message -> call.reject(message) },
             )
+        }
+
+        // Enregistrer le callback AVANT de démarrer le service évite une course où onCreate()
+        // s'exécute avant l'affectation de onReady et la promesse JavaScript reste bloquée.
+        val existing = ScreenCaptureService.instance
+        if (existing != null) {
+            startSession(existing)
+        } else {
+            ScreenCaptureService.onReady = startSession
+            try {
+                context.startForegroundService(Intent(context, ScreenCaptureService::class.java))
+            } catch (error: Exception) {
+                ScreenCaptureService.onReady = null
+                call.reject(error.message ?: "Impossible de démarrer le service de partage")
+            }
         }
     }
 
     @PluginMethod
     fun setRemoteAnswer(call: PluginCall) {
-        ScreenCaptureService.instance?.setRemoteAnswer(call.getString("sdp") ?: "")
+        val service = ScreenCaptureService.instance
+        if (service == null) {
+            call.reject("Aucune session de partage active")
+            return
+        }
+        service.setRemoteAnswer(call.getString("sdp") ?: "")
         call.resolve()
     }
 
     @PluginMethod
     fun addIceCandidate(call: PluginCall) {
-        ScreenCaptureService.instance?.addIce(
+        val service = ScreenCaptureService.instance
+        if (service == null) {
+            call.reject("Aucune session WebRTC active")
+            return
+        }
+        service.addIce(
             call.getString("candidate") ?: "",
             call.getString("sdpMid"),
             call.getInt("sdpMLineIndex") ?: 0,
