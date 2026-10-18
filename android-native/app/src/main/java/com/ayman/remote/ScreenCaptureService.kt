@@ -125,8 +125,18 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    fun setRemoteAnswer(sdp: String) {
-        peer?.setRemoteDescription(EmptySdpObserver(), SessionDescription(SessionDescription.Type.ANSWER, sdp))
+    fun setRemoteAnswer(sdp: String, onComplete: (String?) -> Unit) {
+        val activePeer = peer
+        if (activePeer == null) {
+            onComplete("Aucune connexion WebRTC active")
+            return
+        }
+        activePeer.setRemoteDescription(object : SdpObserver {
+            override fun onSetSuccess() = onComplete(null)
+            override fun onSetFailure(error: String?) = onComplete(error ?: "Impossible d'appliquer la réponse WebRTC")
+            override fun onCreateSuccess(p0: SessionDescription?) {}
+            override fun onCreateFailure(error: String?) = onComplete(error ?: "Échec de la réponse WebRTC")
+        }, SessionDescription(SessionDescription.Type.ANSWER, sdp))
     }
 
     fun addIce(candidate: String, sdpMid: String?, sdpMLineIndex: Int) {
