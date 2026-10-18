@@ -202,6 +202,9 @@ export function useRemoteSession() {
     [createPeer, endSession, myCode, send],
   );
 
+  const hostHandler = useRef(handleHostSignal);
+  hostHandler.current = handleHostSignal;
+
   /* ---------- Initialisation ---------- */
 
   useEffect(() => {
@@ -219,7 +222,7 @@ export function useRemoteSession() {
           config: { broadcast: { self: false } },
         });
         ch.on("broadcast", { event: "signal" }, ({ payload }) => {
-          void handleHostSignal(payload as SignalMessage);
+          void hostHandler.current(payload as SignalMessage);
         });
         await ch.subscribe();
         hostChannel.current = ch;
