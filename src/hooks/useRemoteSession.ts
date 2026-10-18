@@ -77,7 +77,7 @@ export function useRemoteSession() {
       peer.onicecandidate = (e) => {
         if (e.candidate) send({ type: "ice", to: target, from: myId.current, candidate: e.candidate.toJSON() });
       };
-      peer.ontrack = (e) => setRemoteStream(e.streams[0]);
+      peer.ontrack = (e) => setRemoteStream(e.streams[0] ?? new MediaStream([e.track]));
       peer.onconnectionstatechange = () => {
         if (peer.connectionState === "failed" || peer.connectionState === "disconnected") {
           setMessage("La connexion a été perdue.");
@@ -145,7 +145,7 @@ export function useRemoteSession() {
       if (!canShareScreenInBrowser()) throw new Error("unsupported");
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
       localStream.current = stream;
-      stream.getVideoTracks()[0].addEventListener("ended", () => endSession());
+      stream.getVideoTracks()[0]?.addEventListener("ended", () => endSession());
       const peer = createPeer(target);
       stream.getTracks().forEach((t) => peer.addTrack(t, stream));
       const offer = await peer.createOffer();
