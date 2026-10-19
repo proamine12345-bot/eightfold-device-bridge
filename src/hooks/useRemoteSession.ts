@@ -199,7 +199,13 @@ export function useRemoteSession() {
         );
         nativeActive.current = true;
         const offer = await AymanScreenCapture.startCapture({
-          iceServers: (rtcConfig.iceServers ?? []).flatMap((s) => (Array.isArray(s.urls) ? s.urls : [s.urls])),
+          // Keep TURN credentials as well as URLs. Mobile carrier NAT often needs TURN;
+          // stripping username/credential here silently makes those paths fail.
+          iceServers: (rtcConfig.iceServers ?? []).map((server) => ({
+            urls: server.urls,
+            ...(server.username ? { username: server.username } : {}),
+            ...(server.credential ? { credential: server.credential } : {}),
+          })),
         });
         send({ type: "offer", to: target, sdp: offer as RTCSessionDescriptionInit });
         setPhase("sharing");
