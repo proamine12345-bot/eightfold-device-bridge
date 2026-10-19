@@ -17,7 +17,25 @@ export function RemoteScreen({ stream, peerCode, onEnd, onControl }: Props) {
   const [text, setText] = useState("");
 
   useEffect(() => {
-    if (videoRef.current) videoRef.current.srcObject = stream;
+    const video = videoRef.current;
+    if (!video) return;
+    video.srcObject = stream;
+    // Android WebView may not start a WebRTC video track from autoPlay alone.
+    // Explicitly request playback once the remote MediaStream is attached.
+    const startPlayback = () => {
+      void video.play().catch(() => {
+        // The stream remains attached; playback can retry when metadata/canplay fires.
+      });
+    };
+    video.addEventListener("loadedmetadata", startPlayback);
+    video.addEventListener("canplay", startPlayback);
+    startPlayback();
+    return () => {
+      video.removeEventListener("loadedmetadata", startPlayback);
+      video.removeEventListener("canplay", startPlayback);
+      video.pause();
+      video.srcObject = null;
+    };
   }, [stream]);
 
   const normalizedPoint = (clientX: number, clientY: number) => {
