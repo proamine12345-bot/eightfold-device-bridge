@@ -53,7 +53,7 @@ class ScreenCaptureService : Service() {
     fun startSession(
         resultCode: Int,
         data: Intent,
-        iceServers: List<String>,
+        iceServers: List<PeerConnection.IceServer>,
         onOffer: (String) -> Unit,
         onIce: (String, String, Int) -> Unit,
         onStopped: () -> Unit,
@@ -71,7 +71,7 @@ class ScreenCaptureService : Service() {
                 .createPeerConnectionFactory()
 
             val config = PeerConnection.RTCConfiguration(
-                iceServers.map { PeerConnection.IceServer.builder(it).createIceServer() }
+                iceServers
             ).apply { sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN }
 
             peer = factory!!.createPeerConnection(config, object : PeerConnection.Observer {
