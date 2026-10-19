@@ -20,6 +20,27 @@ export type IncomingRequest = { from: string; label: string };
 
 const randomId = () => Math.random().toString(36).slice(2, 10);
 
+/** Wait until Supabase Realtime is actually subscribed before sending session signals. */
+function subscribeAndWait(channel: RealtimeChannel): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve();
+    };
+    const timer = setTimeout(() => finish(new Error("Le serveur de signalisation ne répond pas. Réessayez avec une connexion Internet stable.")), 15000);
+    channel.subscribe((status, error) => {
+      if (status === "SUBSCRIBED") finish();
+      else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        finish(new Error(error?.message || `Signalisation indisponible (${status}). Vérifiez le serveur puis réessayez.`));
+      }
+    });
+  });
+}
+
 export function useRemoteSession() {
   const [myCode, setMyCode] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("init");
@@ -273,7 +294,7 @@ export function useRemoteSession() {
           endSession(false);
         }
       });
-      await ch.subscribe();
+      await subscribeAndWait(ch);
       activeChannel.current = ch;
       setPhase("waiting-consent");
       send({ type: "request", from: myId.current, label: `Code ${myCode ?? "—"}` });
@@ -309,7 +330,7 @@ export function useRemoteSession() {
         ch.on("broadcast", { event: "signal" }, ({ payload }) => {
           void hostHandler.current(payload as SignalMessage);
         });
-        await ch.subscribe();
+        await subscribeAndWait(ch);
         hostChannel.current = ch;
         activeChannel.current = ch;
         setPhase("ready");
