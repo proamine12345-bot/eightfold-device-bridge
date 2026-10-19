@@ -7,7 +7,7 @@ export type RemoteControlAction =
   | { action: "text"; text: string };
 
 export interface AymanScreenCapturePlugin {
-  startCapture(options: { iceServers: string[] }): Promise<{ type: "offer"; sdp: string }>;
+  startCapture(options: { iceServers: { urls: string | string[]; username?: string; credential?: string }[] }): Promise<{ type: "offer"; sdp: string }>;
   setRemoteAnswer(options: { sdp: string }): Promise<void>;
   addIceCandidate(options: { candidate: string; sdpMid: string | null; sdpMLineIndex: number | null }): Promise<void>;
   stopCapture(): Promise<void>;
