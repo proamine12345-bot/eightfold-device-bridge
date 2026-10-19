@@ -12,6 +12,8 @@ import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.ActivityCallback
 import com.getcapacitor.annotation.CapacitorPlugin
+import org.json.JSONArray
+import org.webrtc.PeerConnection
 
 /**
  * Capacitor bridge for screen sharing and owner-authorized remote touch actions.
@@ -21,12 +23,28 @@ import com.getcapacitor.annotation.CapacitorPlugin
 @CapacitorPlugin(name = "AymanScreenCapture")
 class AymanScreenCapturePlugin : Plugin() {
 
-    private var iceServers: List<String> = emptyList()
+    private var iceServers: List<PeerConnection.IceServer> = emptyList()
 
     @PluginMethod
     fun startCapture(call: PluginCall) {
         val servers = call.getArray("iceServers")
-        iceServers = (0 until (servers?.length() ?: 0)).map { servers!!.getString(it) }
+        iceServers = (0 until (servers?.length() ?: 0)).mapNotNull { index ->
+            val server = servers?.optJSONObject(index) ?: return@mapNotNull null
+            val urlsValue = server.opt("urls")
+            val urls = when (urlsValue) {
+                is String -> listOf(urlsValue)
+                is JSONArray -> (0 until urlsValue.length()).mapNotNull { urlsValue.optString(it).takeIf(String::isNotBlank) }
+                else -> emptyList()
+            }
+            val username = server.optString("username", "")
+            val credential = server.optString("credential", "")
+            urls.map { url ->
+                val builder = PeerConnection.IceServer.builder(url)
+                if (username.isNotBlank()) builder.setUsername(username)
+                if (credential.isNotBlank()) builder.setPassword(credential)
+                builder.createIceServer()
+            }
+        }.flatten()
         val mpm = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         startActivityForResult(call, mpm.createScreenCaptureIntent(), "onProjectionResult")
     }
