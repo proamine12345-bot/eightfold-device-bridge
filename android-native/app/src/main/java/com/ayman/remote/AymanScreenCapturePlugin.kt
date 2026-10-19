@@ -56,6 +56,7 @@ class AymanScreenCapturePlugin : Plugin() {
             return
         }
 
+        // The service consumes configured ICE servers, including TURN credentials.
         val startSession: (ScreenCaptureService) -> Unit = { service ->
             service.startSession(
                 resultCode = result.resultCode,
